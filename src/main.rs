@@ -6,6 +6,10 @@ mod harness;
 mod team;
 mod mission;
 mod profdev;
+mod github;
+mod analytics;
+mod serve;
+mod config;
 
 use clap::{Parser, Subcommand};
 use hirebridge::claim::{Claim, VerificationStatus};
@@ -18,6 +22,7 @@ use hirebridge::mission::{MissionEvaluator, Mission, MissionType, Difficulty};
 use hirebridge::profdev::{ProfessionalDevEngine, CompetencyProfile, SkillProficiency, SkillLevel, CompetencyGap, ResourceType};
 use hirebridge::github::GitHubClient;
 use hirebridge::serve::start_server;
+use hirebridge::config::Config;
 
 #[derive(Parser)]
 #[command(name = "hirebridge")]
@@ -158,35 +163,36 @@ enum Commands {
     },
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Claim { text, repo, candidate } => {
+            let config = Config::from_env();
             let mut claim = Claim::new(&candidate, &text, repo.as_deref());
             claim.status = VerificationStatus::Pending;
-            let db = Database::new("hirebridge.db").expect("Failed to open database");
-            db.insert_claim(&claim).expect("Failed to insert claim");
+            let db = Database::new(&config.db_path)?;
+            db.insert_claim(&claim)?;
             println!("Claim submitted: {}", claim.id);
         }
         Commands::Verify { claim_id, clean_clone: _ } => {
             let verifier = Verifier::new("./claims", "./sandbox");
-            let db = Database::new("hirebridge.db").expect("Failed to open database");
-            let claims = db.get_verified_claims(&claim_id).expect("Failed to get claims");
+            let db = Database::new(&Config::from_env().db_path)?;
+            let claims = db.get_verified_claims(&claim_id)?;
             if claims.is_empty() {
                 eprintln!("Claim not found: {}", claim_id);
-                return;
+                return Ok(());
             }
-            let result = verifier.verify(&claims[0]);
+            let result = verifier.verify(&claims[0])?;
             println!("Verification result: {:?}", result.status);
             for evidence in &result.evidence {
                 println!("  {}: {} (exit {})", evidence.command, evidence.output.trim(), evidence.exit_code);
             }
         }
         Commands::Claims { candidate, status: _ } => {
-            let db = Database::new("hirebridge.db").expect("Failed to open database");
+            let db = Database::new(&Config::from_env().db_path)?;
             if let Some(ref c) = candidate {
-                let claims = db.get_verified_claims(c).expect("Failed to get claims");
+                let claims = db.get_verified_claims(c)?;
                 for claim in claims {
                     println!("{}: {} — {:?}", claim.id, claim.claim_text, claim.status);
                 }
@@ -195,9 +201,9 @@ fn main() {
             }
         }
         Commands::Report { candidate_id, format: _ } => {
-            let db = Database::new("hirebridge.db").expect("Failed to open database");
-            let claims = db.get_verified_claims(&candidate_id).expect("Failed to get claims");
-            let stats = db.get_candidate_stats(&candidate_id).expect("Failed to get stats");
+            let db = Database::new(&Config::from_env().db_path)?;
+            let claims = db.get_verified_claims(&candidate_id)?;
+            let stats = db.get_candidate_stats(&candidate_id)?;
             println!("Candidate: {}", candidate_id);
             println!("Claims: {}", stats.0);
             println!("Pass: {}", stats.1);
@@ -208,19 +214,19 @@ fn main() {
         }
         Commands::Tamper { claim_id } => {
             let detector = TamperDetector::new();
-            let db = Database::new("hirebridge.db").expect("Failed to open database");
-            let claims = db.get_verified_claims(&claim_id).expect("Failed to get claims");
+            let db = Database::new(&Config::from_env().db_path)?;
+            let claims = db.get_verified_claims(&claim_id)?;
             if claims.is_empty() {
                 eprintln!("Claim not found: {}", claim_id);
-                return;
+                return Ok(());
             }
-            let result = detector.run_tamper_suite(&claims[0]);
+            let result = detector.run_tamper_suite(&claims[0])?;
             println!("Tamper suite: {}/{} mutations caught", result.caught, result.total);
         }
         Commands::Compare { candidate_a, candidate_b } => {
-            let db = Database::new("hirebridge.db").expect("Failed to open database");
-            let stats_a = db.get_candidate_stats(&candidate_a).expect("Failed to get stats");
-            let stats_b = db.get_candidate_stats(&candidate_b).expect("Failed to get stats");
+            let db = Database::new(&Config::from_env().db_path)?;
+            let stats_a = db.get_candidate_stats(&candidate_a)?;
+            let stats_b = db.get_candidate_stats(&candidate_b)?;
             println!("Candidate A ({}): {} claims, {} pass, {} fail", candidate_a, stats_a.0, stats_a.1, stats_a.2);
             println!("Candidate B ({}): {} claims, {} pass, {} fail", candidate_b, stats_b.0, stats_b.1, stats_b.2);
         }
@@ -241,7 +247,7 @@ fn main() {
                 timeout_seconds: timeout,
                 expected_outcome,
             };
-            let result = harness.execute_task(&task, &candidate);
+            let result = harness.execute_task(&task, &candidate)?;
             println!("Task result: {:?}", result.status);
             println!("Duration: {}s", result.duration_seconds);
             for e in &result.evidence {
@@ -273,7 +279,7 @@ fn main() {
             };
             builder.add_challenge(challenge_obj);
             let challenge_id = challenge.clone();
-            let team = builder.form_team(&challenge_id).expect("Failed to form team");
+            let team = builder.form_team(&challenge_id).ok_or_else(|| anyhow::anyhow!("Failed to form team"))?;
             println!("Team formed: {} members", team.members.len());
             println!("Compatibility score: {:.2}", team.compatibility_score);
             for (id, role) in &team.role_assignment {
@@ -329,7 +335,7 @@ fn main() {
                 failure_criteria: vec!["fail".to_string()],
             };
             evaluator.add_mission(mission);
-            let result = evaluator.evaluate(&mission_id, &candidate, &output);
+            let result = evaluator.evaluate(&mission_id, &candidate, &output)?;
             println!("Mission result: {:?}", result.status);
             println!("Success criteria met: {:?}", result.success_criteria_met);
             println!("Failure criteria met: {:?}", result.failure_criteria_met);
@@ -398,21 +404,19 @@ fn main() {
             }
         }
         Commands::GitHubSync { candidate, repo, email } => {
-            let client = GitHubClient::new();
-            let db = Database::new("hirebridge.db").expect("Failed to open database");
-            let claims = db.get_verified_claims(&candidate).expect("Failed to get claims");
+            let client = GitHubClient::new()?;
+            let db = Database::new(&Config::from_env().db_path)?;
+            let claims = db.get_verified_claims(&candidate)?;
 
             if claims.is_empty() {
                 eprintln!("No claims found for candidate: {}", candidate);
-                return;
+                return Ok(());
             }
 
             let claim = &claims[0];
-            let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-            let commits = runtime.block_on(client.fetch_commits(&repo, &email))
-                .expect("Failed to fetch commits");
-            let prs = runtime.block_on(client.fetch_pr_history(&repo, &email))
-                .expect("Failed to fetch PRs");
+            let runtime = tokio::runtime::Runtime::new()?;
+            let commits = runtime.block_on(client.fetch_commits(&repo, &email))?;
+            let prs = runtime.block_on(client.fetch_pr_history(&repo, &email))?;
 
             let evidence = client.verify_repo_activity(claim, &commits);
             println!("GitHub sync for: {}", candidate);
@@ -424,11 +428,13 @@ fn main() {
             }
         }
         Commands::Serve { addr } => {
-            let db_path = "hirebridge.db".to_string();
-            let addr: std::net::SocketAddr = addr.parse().expect("Invalid address");
+            let config = Config::from_env();
+            let addr: std::net::SocketAddr = addr.parse()?;
             println!("HireBridge dashboard at http://{}", addr);
-            let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-            runtime.block_on(start_server(db_path, addr));
+            println!("Config: {:?}", config.to_map());
+            let runtime = tokio::runtime::Runtime::new()?;
+            runtime.block_on(start_server(config.db_path, addr));
         }
     }
+    Ok(())
 }

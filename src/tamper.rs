@@ -1,3 +1,4 @@
+use anyhow::{Result, Context};
 use std::fs;
 use std::path::PathBuf;
 use crate::claim::{Claim, VerificationStatus, TamperResult};
@@ -79,14 +80,14 @@ impl TamperDetector {
         ]
     }
 
-    pub fn run_tamper_suite(&self, claim: &Claim) -> TamperResult {
+    pub fn run_tamper_suite(&self, claim: &Claim) -> Result<TamperResult> {
         let verifier = Verifier::new("./claims", "./sandbox");
-        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let temp_dir = tempfile::tempdir().context("Failed to create temp dir")?;
         let repo_path = if let Some(url) = &claim.repo_url {
             let output = std::process::Command::new("git")
                 .args(["clone", "--depth", "1", url, temp_dir.path().to_str().unwrap()])
                 .output()
-                .expect("Failed to clone repo");
+                .context("Failed to clone repo")?;
             if !output.status.success() {
                 temp_dir.path().to_path_buf()
             } else {
@@ -102,19 +103,19 @@ impl TamperDetector {
 
         for mutation in &mutations {
             mutation.apply();
-            let result = verifier.verify(claim);
+            let result = verifier.verify(claim)?;
             if result.status == VerificationStatus::Fail {
                 caught += 1;
             }
             mutation.revert();
         }
 
-        TamperResult {
+        Ok(TamperResult {
             total,
             caught,
             missed: total - caught,
             pass_rate: caught as f64 / total as f64,
-        }
+        })
     }
 }
 

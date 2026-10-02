@@ -9,3 +9,4 @@ pub mod profdev;
 pub mod github;
 pub mod analytics;
 pub mod serve;
+pub mod config;

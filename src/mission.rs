@@ -1,3 +1,4 @@
+use anyhow::{Result, Context};
 use std::collections::HashMap;
 use crate::claim::{VerificationStatus, Evidence};
 use chrono::Utc;
@@ -58,8 +59,8 @@ impl MissionEvaluator {
         self.missions.insert(mission.id.clone(), mission);
     }
 
-    pub fn evaluate(&self, mission_id: &str, candidate_id: &str, candidate_output: &str) -> MissionResult {
-        let mission = self.missions.get(mission_id).expect("Mission not found");
+    pub fn evaluate(&self, mission_id: &str, candidate_id: &str, candidate_output: &str) -> Result<MissionResult> {
+        let mission = self.missions.get(mission_id).context("Mission not found")?;
 
         let mut success_criteria_met = Vec::new();
         let mut failure_criteria_met = Vec::new();
@@ -81,7 +82,7 @@ impl MissionEvaluator {
 
         let adaptive_challenge = self.check_adaptive_challenge(mission, candidate_output);
 
-        MissionResult {
+        Ok(MissionResult {
             mission_id: mission_id.to_string(),
             candidate_id: candidate_id.to_string(),
             status: if passed { VerificationStatus::Pass } else { VerificationStatus::Fail },
@@ -101,7 +102,7 @@ impl MissionEvaluator {
             duration_seconds: 0,
             adaptive_challenge_triggered: adaptive_challenge,
             timestamp: Utc::now(),
-        }
+        })
     }
 
     fn check_adaptive_challenge(&self, mission: &Mission, candidate_output: &str) -> bool {

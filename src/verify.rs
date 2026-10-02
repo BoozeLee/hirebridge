@@ -1,3 +1,4 @@
+use anyhow::{Result, Context};
 use std::process::Command;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -17,9 +18,9 @@ impl Verifier {
         }
     }
 
-    pub fn verify(&self, claim: &Claim) -> VerificationResult {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let repo_path = self.clone_repo(&claim.repo_url, temp_dir.path());
+    pub fn verify(&self, claim: &Claim) -> Result<VerificationResult> {
+        let temp_dir = TempDir::new().context("Failed to create temp dir")?;
+        let repo_path = self.clone_repo(&claim.repo_url, temp_dir.path())?;
 
         let mut evidence = Vec::new();
         let mut all_passed = true;
@@ -30,7 +31,7 @@ impl Verifier {
                 .arg(&cmd.command)
                 .current_dir(&repo_path)
                 .output()
-                .expect("Failed to execute command");
+                .context("Failed to execute command")?;
 
             let exit_code = output.status.code().unwrap_or(-1);
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -53,26 +54,26 @@ impl Verifier {
             }
         }
 
-        VerificationResult {
+        Ok(VerificationResult {
             claim_id: claim.id.clone(),
             status: if all_passed { VerificationStatus::Pass } else { VerificationStatus::Fail },
             evidence,
             checksum: claim.checksum.clone(),
             timestamp: Utc::now(),
-        }
+        })
     }
 
-    fn clone_repo(&self, url: &Option<String>, path: &Path) -> PathBuf {
+    fn clone_repo(&self, url: &Option<String>, path: &Path) -> Result<PathBuf> {
         if let Some(url) = url {
             let output = Command::new("git")
                 .args(["clone", "--depth", "1", url, path.to_str().unwrap()])
                 .output()
-                .expect("Failed to clone repo");
+                .context("Failed to clone repo")?;
             if !output.status.success() {
                 eprintln!("Git clone failed: {}", String::from_utf8_lossy(&output.stderr));
             }
         }
-        path.to_path_buf()
+        Ok(path.to_path_buf())
     }
 }
 

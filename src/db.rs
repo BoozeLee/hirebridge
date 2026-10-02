@@ -101,4 +101,24 @@ impl Database {
             Err(_) => Ok((0, 0, 0)),
         }
     }
+
+    pub fn get_all_candidates(&self) -> Result<Vec<serde_json::Value>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, claims_count, pass_count, fail_count FROM candidates"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "claims_count": row.get::<_, i64>(1)?,
+                "pass_count": row.get::<_, i64>(2)?,
+                "fail_count": row.get::<_, i64>(3)?,
+                "pass_rate": if row.get::<_, i64>(1)? > 0 {
+                    row.get::<_, i64>(2)? as f64 / row.get::<_, i64>(1)? as f64 * 100.0
+                } else {
+                    0.0
+                }
+            }))
+        })?.collect::<Result<Vec<_>>>()?;
+        Ok(rows)
+    }
 }
