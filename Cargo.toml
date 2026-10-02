@@ -1,0 +1,19 @@
+[package]
+name = "hirebridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+assert_cmd = "2.2.2"
+chrono = { version = "0.4.45", features = ["serde"] }
+clap = { version = "4.6.7", features = ["derive"] }
+hex = "0.4.3"
+predicates = "3.1.4"
+reqwest = "0.13.5"
+rusqlite = "0.40.2"
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.11.0"
+tempfile = "3.27.0"
+tokio = "1.53.1"
