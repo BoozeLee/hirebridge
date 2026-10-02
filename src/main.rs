@@ -16,6 +16,8 @@ use hirebridge::harness::{Harness, Task, ExpectedOutcome};
 use hirebridge::team::{TeamBuilder, TeamMember, CommunicationStyle, TeamChallenge};
 use hirebridge::mission::{MissionEvaluator, Mission, MissionType, Difficulty};
 use hirebridge::profdev::{ProfessionalDevEngine, CompetencyProfile, SkillProficiency, SkillLevel, CompetencyGap, ResourceType};
+use hirebridge::github::GitHubClient;
+use hirebridge::serve::start_server;
 
 #[derive(Parser)]
 #[command(name = "hirebridge")]
@@ -139,6 +141,20 @@ enum Commands {
         candidate: String,
         #[arg(long, num_args = 1..)]
         skills: Vec<String>,
+    },
+    /// Sync with GitHub
+    GitHubSync {
+        #[arg(long)]
+        candidate: String,
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        email: String,
+    },
+    /// Start web dashboard server
+    Serve {
+        #[arg(long, default_value = "127.0.0.1:8080")]
+        addr: String,
     },
 }
 
@@ -380,6 +396,39 @@ fn main() {
                 println!("    Shared skills: {:?}", m.shared_skills);
                 println!("    Focus: {}", m.recommended_focus);
             }
+        }
+        Commands::GitHubSync { candidate, repo, email } => {
+            let client = GitHubClient::new();
+            let db = Database::new("hirebridge.db").expect("Failed to open database");
+            let claims = db.get_verified_claims(&candidate).expect("Failed to get claims");
+
+            if claims.is_empty() {
+                eprintln!("No claims found for candidate: {}", candidate);
+                return;
+            }
+
+            let claim = &claims[0];
+            let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+            let commits = runtime.block_on(client.fetch_commits(&repo, &email))
+                .expect("Failed to fetch commits");
+            let prs = runtime.block_on(client.fetch_pr_history(&repo, &email))
+                .expect("Failed to fetch PRs");
+
+            let evidence = client.verify_repo_activity(claim, &commits);
+            println!("GitHub sync for: {}", candidate);
+            println!("Commits: {}", commits.len());
+            println!("PRs: {}", prs.len());
+            println!("Verification: {}", if evidence.exit_code == 0 { "PASS" } else { "FAIL" });
+            for commit in &commits {
+                println!("  {} — {}", commit.sha[..7].to_string(), commit.commit.message.lines().next().unwrap_or(""));
+            }
+        }
+        Commands::Serve { addr } => {
+            let db_path = "hirebridge.db".to_string();
+            let addr: std::net::SocketAddr = addr.parse().expect("Invalid address");
+            println!("HireBridge dashboard at http://{}", addr);
+            let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+            runtime.block_on(start_server(db_path, addr));
         }
     }
 }

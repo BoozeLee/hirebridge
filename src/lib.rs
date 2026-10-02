@@ -6,3 +6,6 @@ pub mod harness;
 pub mod team;
 pub mod mission;
 pub mod profdev;
+pub mod github;
+pub mod analytics;
+pub mod serve;

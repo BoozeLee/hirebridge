@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HireBridge Dashboard</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; }
+h1 { color: #58a6ff; margin-bottom: 1.5rem; }
+.card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; }
+.card h2 { color: #58a6ff; font-size: 1.1rem; margin-bottom: 0.75rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.stat { text-align: center; }
+.stat .value { font-size: 2rem; font-weight: 700; color: #58a6ff; }
+.stat .label { font-size: 0.85rem; color: #8b949e; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #21262d; }
+th { color: #8b949e; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+.pass { color: #3fb950; }
+.fail { color: #f85149; }
+.pending { color: #d29922; }
+input, button { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 0.5rem 1rem; border-radius: 6px; }
+button { cursor: pointer; background: #238636; border-color: #238636; }
+button:hover { background: #2ea043; }
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+</style>
+</head>
+<body>
+<h1>HireBridge Dashboard</h1>
+
+<div class="grid" id="stats"></div>
+
+<div class="card">
+  <h2>Candidates</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Claims</th><th>Pass</th><th>Fail</th><th>Pass Rate</th></tr></thead>
+    <tbody id="candidate-table"></tbody>
+  </table>
+</div>
+
+<div class="card mt-2">
+  <h2>Quick Actions</h2>
+  <div>
+    <input id="candidate-input" placeholder="Candidate ID" style="width: 200px; margin-right: 0.5rem;">
+    <button onclick="loadCandidate()">Load Candidate</button>
+    <button onclick="syncGitHub()" class="mt-1">Sync GitHub</button>
+  </div>
+  <pre id="output" class="mt-1" style="background:#0d1117; padding:1rem; border-radius:6px; overflow-x:auto; display:none;"></pre>
+</div>
+
+<script>
+async function loadStats() {
+  const res = await fetch('/api/stats');
+  const data = await res.json();
+  document.getElementById('stats').innerHTML = `
+    <div class="card stat"><div class="value">${data.total_claims}</div><div class="label">Total Claims</div></div>
+    <div class="card stat"><div class="value">${data.total_passes}</div><div class="label">Passes</div></div>
+    <div class="card stat"><div class="value">${data.total_fails}</div><div class="label">Fails</div></div>
+  `;
+}
+
+async function loadCandidates() {
+  const res = await fetch('/api/candidates');
+  const candidates = await res.json();
+  document.getElementById('candidate-table').innerHTML = candidates.map(c => `
+    <tr>
+      <td>${c.id}</td>
+      <td>${c.claims_count}</td>
+      <td class="pass">${c.pass_count}</td>
+      <td class="fail">${c.fail_count}</td>
+      <td>${c.pass_rate}%</td>
+    </tr>
+  `).join('');
+}
+
+async function loadCandidate() {
+  const id = document.getElementById('candidate-input').value;
+  if (!id) return;
+  const out = document.getElementById('output');
+  out.style.display = 'block';
+  out.textContent = 'Loading...';
+  const res = await fetch('/api/candidate/' + id);
+  const data = await res.json();
+  out.textContent = JSON.stringify(data, null, 2);
+}
+
+async function syncGitHub() {
+  const id = document.getElementById('candidate-input').value;
+  if (!id) return;
+  const out = document.getElementById('output');
+  out.style.display = 'block';
+  out.textContent = 'Syncing...';
+  const res = await fetch('/api/github/sync?candidate=' + id, { method: 'POST' });
+  const data = await res.json();
+  out.textContent = JSON.stringify(data, null, 2);
+}
+
+loadStats();
+loadCandidates();
+</script>
+</body>
+</html>
