@@ -3,3 +3,4 @@ pub mod verify;
 pub mod tamper;
 pub mod db;
 pub mod harness;
+pub mod team;

@@ -3,6 +3,7 @@ mod verify;
 mod tamper;
 mod db;
 mod harness;
+mod team;
 
 use clap::{Parser, Subcommand};
 use hirebridge::claim::{Claim, VerificationStatus};
@@ -10,6 +11,7 @@ use hirebridge::db::Database;
 use hirebridge::verify::Verifier;
 use hirebridge::tamper::TamperDetector;
 use hirebridge::harness::{Harness, Task, ExpectedOutcome};
+use hirebridge::team::{TeamBuilder, TeamMember, CommunicationStyle, TeamChallenge};
 
 #[derive(Parser)]
 #[command(name = "hirebridge")]
@@ -80,6 +82,24 @@ enum Commands {
         #[arg(long, default_value = "0")]
         exit_code: i32,
     },
+    /// Form a team from candidates
+    Team {
+        #[arg(short, long)]
+        challenge: String,
+        #[arg(long, num_args = 1..)]
+        candidates: Vec<String>,
+    },
+    /// Assess candidate collaboration
+    Assess {
+        #[arg(long)]
+        candidate: String,
+        #[arg(long)]
+        collaboration: u8,
+        #[arg(long)]
+        leadership: u8,
+        #[arg(long)]
+        style: String,
+    },
 }
 
 fn main() {
@@ -93,7 +113,7 @@ fn main() {
             db.insert_claim(&claim).expect("Failed to insert claim");
             println!("Claim submitted: {}", claim.id);
         }
-        Commands::Verify { claim_id, clean_clone } => {
+        Commands::Verify { claim_id, clean_clone: _ } => {
             let verifier = Verifier::new("./claims", "./sandbox");
             let db = Database::new("hirebridge.db").expect("Failed to open database");
             let claims = db.get_verified_claims(&claim_id).expect("Failed to get claims");
@@ -107,7 +127,7 @@ fn main() {
                 println!("  {}: {} (exit {})", evidence.command, evidence.output.trim(), evidence.exit_code);
             }
         }
-        Commands::Claims { candidate, status } => {
+        Commands::Claims { candidate, status: _ } => {
             let db = Database::new("hirebridge.db").expect("Failed to open database");
             if let Some(ref c) = candidate {
                 let claims = db.get_verified_claims(c).expect("Failed to get claims");
@@ -118,7 +138,7 @@ fn main() {
                 println!("Please provide a candidate ID with --candidate");
             }
         }
-        Commands::Report { candidate_id, format } => {
+        Commands::Report { candidate_id, format: _ } => {
             let db = Database::new("hirebridge.db").expect("Failed to open database");
             let claims = db.get_verified_claims(&candidate_id).expect("Failed to get claims");
             let stats = db.get_candidate_stats(&candidate_id).expect("Failed to get stats");
@@ -171,6 +191,61 @@ fn main() {
             for e in &result.evidence {
                 println!("  {}: exit {} — {}", e.command, e.exit_code, e.output.trim());
             }
+        }
+        Commands::Team { challenge, candidates } => {
+            let mut builder = TeamBuilder::new();
+            for candidate_id in &candidates {
+                let member = TeamMember {
+                    candidate_id: candidate_id.clone(),
+                    name: candidate_id.clone(),
+                    role: "Contributor".to_string(),
+                    skills: vec!["Rust".to_string(), "TypeScript".to_string()],
+                    communication_style: CommunicationStyle::Direct,
+                    leadership_score: 5,
+                    collaboration_score: 7,
+                };
+                builder.add_member(member);
+            }
+            let challenge_obj = TeamChallenge {
+                id: challenge.clone(),
+                title: "Team Challenge".to_string(),
+                description: "Collaborative task".to_string(),
+                required_skills: vec!["Rust".to_string()],
+                min_members: 2,
+                max_members: 4,
+                duration_minutes: 60,
+            };
+            builder.add_challenge(challenge_obj);
+            let challenge_id = challenge.clone();
+            let team = builder.form_team(&challenge_id).expect("Failed to form team");
+            println!("Team formed: {} members", team.members.len());
+            println!("Compatibility score: {:.2}", team.compatibility_score);
+            for (id, role) in &team.role_assignment {
+                println!("  {}: {}", id, role);
+            }
+        }
+        Commands::Assess { candidate, collaboration, leadership, style } => {
+            let style_str = style.clone();
+            let style_enum = match style_str.as_str() {
+                "analytical" => CommunicationStyle::Analytical,
+                "creative" => CommunicationStyle::Creative,
+                "structured" => CommunicationStyle::Structured,
+                "adaptive" => CommunicationStyle::Adaptive,
+                _ => CommunicationStyle::Direct,
+            };
+            let _member = TeamMember {
+                candidate_id: candidate.clone(),
+                name: candidate.clone(),
+                role: "Contributor".to_string(),
+                skills: vec!["Rust".to_string(), "TypeScript".to_string()],
+                communication_style: style_enum,
+                leadership_score: leadership,
+                collaboration_score: collaboration,
+            };
+            println!("Assessed: {}", candidate);
+            println!("  Collaboration: {}", collaboration);
+            println!("  Leadership: {}", leadership);
+            println!("  Style: {:?}", style);
         }
     }
 }
