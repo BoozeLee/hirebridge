@@ -4,6 +4,8 @@ mod tamper;
 mod db;
 mod harness;
 mod team;
+mod mission;
+mod profdev;
 
 use clap::{Parser, Subcommand};
 use hirebridge::claim::{Claim, VerificationStatus};
@@ -12,6 +14,8 @@ use hirebridge::verify::Verifier;
 use hirebridge::tamper::TamperDetector;
 use hirebridge::harness::{Harness, Task, ExpectedOutcome};
 use hirebridge::team::{TeamBuilder, TeamMember, CommunicationStyle, TeamChallenge};
+use hirebridge::mission::{MissionEvaluator, Mission, MissionType, Difficulty};
+use hirebridge::profdev::{ProfessionalDevEngine, CompetencyProfile, SkillProficiency, SkillLevel, CompetencyGap, ResourceType};
 
 #[derive(Parser)]
 #[command(name = "hirebridge")]
@@ -99,6 +103,42 @@ enum Commands {
         leadership: u8,
         #[arg(long)]
         style: String,
+    },
+    /// Evaluate a mission
+    Mission {
+        #[arg(short, long)]
+        title: String,
+        #[arg(long, default_value = "strategic")]
+        mtype: String,
+        #[arg(long, default_value = "medium")]
+        difficulty: String,
+        #[arg(long)]
+        candidate: String,
+        #[arg(long)]
+        output: String,
+    },
+    /// Analyze competency gaps
+    AssessCandidate {
+        #[arg(long)]
+        candidate: String,
+        #[arg(long, num_args = 1..)]
+        skills: Vec<String>,
+        #[arg(long)]
+        role: String,
+    },
+    /// Generate a learning plan
+    LearningPlan {
+        #[arg(long)]
+        candidate: String,
+        #[arg(long, num_args = 1..)]
+        gaps: Vec<String>,
+    },
+    /// Find mentorship matches
+    MentorMatch {
+        #[arg(long)]
+        candidate: String,
+        #[arg(long, num_args = 1..)]
+        skills: Vec<String>,
     },
 }
 
@@ -246,6 +286,100 @@ fn main() {
             println!("  Collaboration: {}", collaboration);
             println!("  Leadership: {}", leadership);
             println!("  Style: {:?}", style);
+        }
+        Commands::Mission { title, mtype, difficulty, candidate, output } => {
+            let mut evaluator = MissionEvaluator::new();
+            let mtype_enum = match mtype.as_str() {
+                "crisis" => MissionType::CrisisManagement,
+                "innovation" => MissionType::Innovation,
+                "crossfunctional" => MissionType::CrossFunctional,
+                _ => MissionType::StrategicPlanning,
+            };
+            let difficulty_enum = match difficulty.as_str() {
+                "easy" => Difficulty::Easy,
+                "hard" => Difficulty::Hard,
+                "expert" => Difficulty::Expert,
+                _ => Difficulty::Medium,
+            };
+            let mission_id = format!("mission-{}", chrono::Utc::now().timestamp());
+            let mission = Mission {
+                id: mission_id.clone(),
+                title: title.clone(),
+                description: format!("{:?} mission at {:?} difficulty", mtype_enum, difficulty_enum),
+                mission_type: mtype_enum,
+                difficulty: difficulty_enum,
+                duration_minutes: 60,
+                success_criteria: vec![title.clone()],
+                failure_criteria: vec!["fail".to_string()],
+            };
+            evaluator.add_mission(mission);
+            let result = evaluator.evaluate(&mission_id, &candidate, &output);
+            println!("Mission result: {:?}", result.status);
+            println!("Success criteria met: {:?}", result.success_criteria_met);
+            println!("Failure criteria met: {:?}", result.failure_criteria_met);
+            println!("Adaptive challenge triggered: {}", result.adaptive_challenge_triggered);
+        }
+        Commands::AssessCandidate { candidate, skills, role } => {
+            let engine = ProfessionalDevEngine::new();
+            let required_skills: Vec<SkillProficiency> = skills.iter().map(|s| {
+                SkillProficiency {
+                    name: s.clone(),
+                    level: SkillLevel::Intermediate,
+                    years_experience: 1.0,
+                }
+            }).collect();
+            let profile = CompetencyProfile {
+                candidate_id: candidate.clone(),
+                skills: vec![
+                    SkillProficiency { name: "Rust".to_string(), level: SkillLevel::Advanced, years_experience: 3.0 },
+                    SkillProficiency { name: "TypeScript".to_string(), level: SkillLevel::Intermediate, years_experience: 2.0 },
+                ],
+                experience_years: 4.0,
+                certifications: vec!["Rust Certified".to_string()],
+                role_target: role.clone(),
+            };
+            let evidence = engine.assess_candidate(&profile, &required_skills);
+            println!("Assessment for: {}", candidate);
+            println!("Role target: {}", role);
+            println!("Exit code: {}", evidence.exit_code);
+            println!("{}", evidence.output);
+        }
+        Commands::LearningPlan { candidate, gaps } => {
+            let engine = ProfessionalDevEngine::new();
+            let gap_list: Vec<CompetencyGap> = gaps.iter().map(|g| CompetencyGap {
+                skill_name: g.clone(),
+                required_level: SkillLevel::Intermediate,
+                current_level: SkillLevel::Beginner,
+                gap_magnitude: 2,
+            }).collect();
+            let plan = engine.generate_learning_plan(&candidate, gap_list);
+            println!("Learning plan for: {}", candidate);
+            println!("Total duration: {} minutes", plan.total_duration_minutes);
+            for resource in &plan.resources {
+                println!("  [{}] {} ({} min)", match resource.resource_type {
+                    ResourceType::Video => "video",
+                    ResourceType::Article => "article",
+                    ResourceType::Interactive => "interactive",
+                    ResourceType::Quiz => "quiz",
+                    ResourceType::Project => "project",
+                }, resource.title, resource.duration_minutes);
+            }
+        }
+        Commands::MentorMatch { candidate, skills } => {
+            let engine = ProfessionalDevEngine::new();
+            let gaps: Vec<CompetencyGap> = skills.iter().map(|s| CompetencyGap {
+                skill_name: s.clone(),
+                required_level: SkillLevel::Advanced,
+                current_level: SkillLevel::Beginner,
+                gap_magnitude: 2,
+            }).collect();
+            let matches = engine.find_mentors(&gaps);
+            println!("Mentorship matches for: {}", candidate);
+            for m in &matches {
+                println!("  {} (score: {:.2})", m.mentor_name, m.match_score);
+                println!("    Shared skills: {:?}", m.shared_skills);
+                println!("    Focus: {}", m.recommended_focus);
+            }
         }
     }
 }
